@@ -1,0 +1,37 @@
+{
+  "window": {
+    "width": 1600,
+    "height": 1000,
+    "maximized": false
+  },
+  "paths": {
+    "last_open_dir": "",
+    "last_save_dir": "",
+    "output_dir": "",
+    "models_dir": "models"
+  },
+  "upscale": {
+    "scale_factor": 4,
+    "model_variant": "RealESRGAN_x4plus",
+    "texture_type": "auto",
+    "tile_size": 0,
+    "tile_overlap": 32,
+    "half_precision": true,
+    "preserve_alpha": true,
+    "seamless_mode": false,
+    "denoise_strength": 0.5,
+    "sharpen_amount": 0.0,
+    "color_correction": true,
+    "gpu_id": 0,
+    "output_format": "png",
+    "output_quality": 100,
+    "generate_mipmaps": false,
+    "max_mipmap_levels": 8
+  },
+  "ui": {
+    "theme": "dark",
+    "preview_mode": "slider",
+    "show_info_panel": true,
+    "show_batch_panel": true
+  }
+}

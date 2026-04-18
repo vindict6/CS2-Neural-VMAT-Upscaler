@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Test artifacts
+test_*.py
+test_*.png
+test_output.*
+capture_screenshots.py
+
+# Temp / scratch files
+tmp_*.py
+rewrite.py
+
+# Model weights (too large for git)
+models/*.pth
+
+# Logs
+*.log
