@@ -1046,12 +1046,22 @@ def _deband(image: np.ndarray, strength: float) -> np.ndarray:
     sigma_space = 3.0 * strength
     if sigma_color < 2.0:
         return image
+
+    # Gate bilateral filter based on existing texture detail.  High-detail
+    # textures (concrete grit, perforated metal dots) must not be smoothed;
+    # only genuinely banded / hand-painted textures need this pass.
+    gray = cv2.cvtColor(
+        np.clip(image, 0, 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_32F).var())
+    # lap_var < 200 → full deband; 200..500 → linear taper; > 500 → skip
+    detail_gate = float(np.clip(1.0 - (lap_var - 200.0) / 300.0, 0.0, 1.0))
+    if detail_gate < 0.05:
+        return image
+
     filtered = cv2.bilateralFilter(
         np.clip(image, 0, 255).astype(np.uint8),
         d=5, sigmaColor=sigma_color, sigmaSpace=sigma_space)
-    # Blend: keep edges from original, smoothness from filtered.
-    # Reduced from 0.4/0.6 — bilateral was the main source of smearing.
-    blend = min(strength * 0.25, 0.35)
+    blend = min(strength * 0.25, 0.35) * detail_gate
     return image * (1.0 - blend) + filtered.astype(np.float32) * blend
 
 
