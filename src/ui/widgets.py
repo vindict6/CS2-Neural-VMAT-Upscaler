@@ -85,8 +85,8 @@ class GPUInfoBar(QFrame):
         self._gpu_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
 
         self._vram_bar = QProgressBar()
-        self._vram_bar.setFixedWidth(100)
-        self._vram_bar.setFixedHeight(12)
+        self._vram_bar.setFixedWidth(120)
+        self._vram_bar.setFixedHeight(16)
         self._vram_bar.setTextVisible(True)
         self._vram_bar.setFormat("%v / %m MB")
 

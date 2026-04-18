@@ -380,9 +380,9 @@ def get_stylesheet() -> str:
         border-top: 1px solid {BORDER};
         font-size: 11px;
         color: {TEXT_SECONDARY};
-        min-height: 20px;
-        max-height: 24px;
-        padding: 0 4px;
+        min-height: 28px;
+        max-height: 32px;
+        padding: 2px 4px;
     }}
     QStatusBar::item {{
         border: none;
