@@ -16,16 +16,23 @@ def configure_logging():
 
 
 def run():
-    """Launch the CS2 Texture Upscaler application."""
+    """Launch the CS2 Neural VMAT Upscaler application."""
     configure_logging()
     logger = logging.getLogger("CS2Upscaler")
-    logger.info("Starting CS2 Texture Upscaler...")
+    logger.info("Starting CS2 Neural VMAT Upscaler...")
 
     from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QIcon
     app = QApplication(sys.argv)
-    app.setApplicationName("CS2 Texture Upscaler")
-    app.setOrganizationName("CS2 Texture Upscaler")
+    app.setApplicationName("CS2 Neural VMAT Upscaler")
+    app.setOrganizationName("CS2 Neural VMAT Upscaler")
     app.setApplicationVersion("2.0.0")
+
+    # Set application icon
+    import os
+    icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "icon.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     # Apply dark theme
     from .ui.theme import get_stylesheet

@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CS2 Texture Upscaler")
+        self.setWindowTitle("CS2 Neural VMAT Upscaler")
         self.setMinimumSize(1280, 800)
         self.resize(1600, 1000)
 
@@ -284,6 +284,26 @@ class MainWindow(QMainWindow):
         self._status_label = QLabel("Ready")
         self._status_bar.addWidget(self._status_label)
 
+        # ── Debug console dock ───────────────────────────────────
+        from PyQt6.QtWidgets import QPlainTextEdit
+        self._debug_console = QPlainTextEdit()
+        self._debug_console.setReadOnly(True)
+        self._debug_console.setMaximumBlockCount(5000)
+        self._debug_console.setStyleSheet(
+            f"font-family: 'Cascadia Code', 'Consolas', monospace; "
+            f"font-size: 11px; background: #1a1a2e; color: #c0c0c0; "
+            f"border: none; padding: 4px;"
+        )
+        self._debug_dock = QDockWidget("Debug Console", self)
+        self._debug_dock.setWidget(self._debug_console)
+        self._debug_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._debug_dock)
+        self._debug_dock.hide()
+
+        # Install log handler that writes to the debug console
+        self._install_debug_log_handler()
+
     def _build_menu(self):
         menubar = self.menuBar()
 
@@ -416,6 +436,12 @@ class MainWindow(QMainWindow):
         save_act = tb.addAction("Save Result")
         save_act.setToolTip("Save upscaled result (Ctrl+S)")
         save_act.triggered.connect(self._on_save)
+
+        tb.addSeparator()
+
+        debug_act = tb.addAction("Debug Console")
+        debug_act.setToolTip("Show/hide debug log output")
+        debug_act.triggered.connect(self._toggle_debug_console)
 
     def _connect_signals(self):
         from ..core.pipeline import JobStatus
@@ -979,29 +1005,75 @@ class MainWindow(QMainWindow):
         info = self._upscaler.gpu_info
         self._gpu_bar.update_info(info)
 
+    # ------------------------------------------------------------------
+    # Debug Console
+    # ------------------------------------------------------------------
+
+    def _toggle_debug_console(self):
+        if self._debug_dock.isVisible():
+            self._debug_dock.hide()
+        else:
+            self._debug_dock.show()
+
+    def _install_debug_log_handler(self):
+        import logging
+
+        class _QtLogHandler(logging.Handler):
+            def __init__(self, text_widget):
+                super().__init__()
+                self._widget = text_widget
+
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    self._widget.appendPlainText(msg)
+                except RuntimeError:
+                    pass  # widget destroyed
+
+        handler = _QtLogHandler(self._debug_console)
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S"))
+        logging.getLogger().addHandler(handler)
+
     def _on_about(self):
-        from .. import __version__
+        from .. import __version__, __app_name__
         from .theme import ACCENT, TEXT_SECONDARY
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle("About CS2 Texture Upscaler")
-        dlg.setTextFormat(Qt.TextFormat.RichText)
-        dlg.setText(
-            f"<div style='text-align:center;'>"
-            f"<h1 style='color:{ACCENT}; margin-bottom:2px;'>CS2 Texture Upscaler</h1>"
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"About {__app_name__}")
+        dlg.setFixedSize(420, 320)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        content = QLabel(
+            f"<div style='text-align:center; padding: 20px;'>"
+            f"<h1 style='color:{ACCENT}; margin-bottom:2px;'>{__app_name__}</h1>"
             f"<p style='font-size:14px; color:{TEXT_SECONDARY};'>v{__version__}</p>"
             f"<p style='font-size:13px;'>AI-Powered Material Upscaler for Counter-Strike 2</p>"
-            f"<p style='font-size:12px; color:{TEXT_SECONDARY};'>Real-ESRGAN &middot; PyTorch &middot; 30-Material Generative Enhancement</p>"
-            f"<hr>"
+            f"<p style='font-size:12px; color:{TEXT_SECONDARY};'>"
+            f"Real-ESRGAN &middot; PyTorch &middot; 30-Material Generative Enhancement</p>"
+            f"<hr style='margin: 10px 30px;'>"
             f"<p style='font-size:12px;'>"
             f"Recursive VMAT scanning &middot; PBR map generation<br>"
             f"Alpha preservation &middot; Batch processing<br>"
             f"Before/after preview &middot; Smart tile sizing</p>"
-            f"<hr>"
+            f"<hr style='margin: 10px 30px;'>"
             f"<p style='font-size:12px; color:{TEXT_SECONDARY};'>"
             f"&copy; 2026 BONE. All rights reserved.</p>"
             f"</div>"
         )
-        dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        content.setWordWrap(True)
+        layout.addWidget(content)
+
+        btn = QPushButton("OK")
+        btn.setFixedWidth(80)
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(10)
+
         dlg.exec()
 
     # ------------------------------------------------------------------

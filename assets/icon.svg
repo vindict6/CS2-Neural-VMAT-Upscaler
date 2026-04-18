@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="head" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8B9DAF"/>
+      <stop offset="50%" stop-color="#6B7B8D"/>
+      <stop offset="100%" stop-color="#4A5568"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C4956A"/>
+      <stop offset="100%" stop-color="#8B6914"/>
+    </linearGradient>
+  </defs>
+  <!-- Handle -->
+  <rect x="108" y="100" width="24" height="130" rx="4" fill="url(#handle)" transform="rotate(-30 120 165)"/>
+  <!-- Hammer head -->
+  <rect x="60" y="40" width="120" height="55" rx="8" fill="url(#head)" transform="rotate(-30 120 67)"/>
+  <!-- Hammer face highlight -->
+  <rect x="62" y="42" width="25" height="51" rx="6" fill="rgba(255,255,255,0.15)" transform="rotate(-30 120 67)"/>
+  <!-- Neural network nodes (AI accent) -->
+  <circle cx="195" cy="50" r="6" fill="#4FC3F7"/>
+  <circle cx="220" cy="35" r="4" fill="#4FC3F7"/>
+  <circle cx="215" cy="65" r="5" fill="#4FC3F7"/>
+  <circle cx="240" cy="50" r="3" fill="#4FC3F7"/>
+  <line x1="195" y1="50" x2="220" y2="35" stroke="#4FC3F7" stroke-width="1.5" opacity="0.6"/>
+  <line x1="195" y1="50" x2="215" y2="65" stroke="#4FC3F7" stroke-width="1.5" opacity="0.6"/>
+  <line x1="220" y1="35" x2="240" y2="50" stroke="#4FC3F7" stroke-width="1.5" opacity="0.6"/>
+  <line x1="215" y1="65" x2="240" y2="50" stroke="#4FC3F7" stroke-width="1.5" opacity="0.6"/>
+</svg>

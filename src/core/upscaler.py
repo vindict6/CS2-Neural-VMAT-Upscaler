@@ -664,7 +664,9 @@ class TextureUpscaler:
         local_std = np.sqrt(local_var)
 
         # 0 = flat (prefer Lanczos), 1 = textured (keep AI)
-        mask = np.clip((local_std - 2.0) / 6.0, 0.0, 1.0)
+        # Threshold raised: only truly flat regions (std < 5) get Lanczos blend;
+        # subtle grit/detail in brick/metal (std 2-8) is preserved.
+        mask = np.clip((local_std - 5.0) / 10.0, 0.0, 1.0)
 
         # Early exit if the whole image is textured
         if mask.min() > 0.95:

@@ -942,20 +942,21 @@ def anti_halo_pass(upscaled: np.ndarray,
         return upscaled
     edge_norm = edges / edge_max
 
-    # Expand edge regions where halos form
-    halo_zone = cv2.GaussianBlur(edge_norm, (0, 0), sigmaX=3.0)
-    halo_zone = np.clip(halo_zone * 2.0, 0.0, 1.0)
+    # Expand edge regions where halos form — use a tighter radius so fine
+    # grit/detail isn't swept into the "halo zone".
+    halo_zone = cv2.GaussianBlur(edge_norm, (0, 0), sigmaX=2.0)
+    halo_zone = np.clip(halo_zone * 1.5, 0.0, 1.0)
 
     # Per-pixel difference magnitude
     diff_mag = np.sqrt(np.sum(diff ** 2, axis=-1))
 
-    # Halo detection: large difference in edge zones
-    # Threshold: difference > 20 in the halo zone is suspicious
-    halo_suspicion = halo_zone * np.clip(diff_mag / 40.0, 0.0, 1.0)
+    # Halo detection: require a larger divergence before treating as halo
+    # so subtle grit detail (small diffs near edges) is kept.
+    halo_suspicion = halo_zone * np.clip(diff_mag / 60.0, 0.0, 1.0)
 
     # Correction: blend back toward reference in halo regions
-    correction_strength = halo_suspicion * strength * 0.7
-    correction_strength = np.clip(correction_strength, 0.0, 0.85)
+    correction_strength = halo_suspicion * strength * 0.5
+    correction_strength = np.clip(correction_strength, 0.0, 0.7)
 
     # Expand to 3 channels
     cs3 = correction_strength[:, :, np.newaxis]
@@ -1393,6 +1394,7 @@ def _frequency_split_enhance(image: np.ndarray, profile: MaterialProfile,
 
     # Suppress boost in flat / solid-colour regions to prevent amplifying
     # tiny AI-tile artefacts into visible contrast swirls.
+    # Lower threshold so subtle grit (brick mortar, metal scratches) gets boosted.
     grey = cv2.cvtColor(np.clip(img_f, 0, 255).astype(np.uint8),
                         cv2.COLOR_RGB2GRAY).astype(np.float32)
     ksize = max(5, min(h, w) // 16) | 1
@@ -1400,7 +1402,7 @@ def _frequency_split_enhance(image: np.ndarray, profile: MaterialProfile,
     l_sq = cv2.blur(grey ** 2, (ksize, ksize))
     l_var = np.maximum(l_sq - l_mean ** 2, 0)
     l_std = np.sqrt(l_var)
-    var_mask = np.clip((l_std - 3.0) / 8.0, 0.0, 1.0)
+    var_mask = np.clip((l_std - 1.5) / 5.0, 0.0, 1.0)
     var_mask = cv2.GaussianBlur(var_mask, (0, 0), sigmaX=max(2, ksize // 2))
     var3 = var_mask[:, :, np.newaxis]
 

@@ -1,12 +1,22 @@
 """
-CS2 Texture Upscaler — AI upscaling for Counter-Strike 2 materials
+CS2 Neural VMAT Upscaler — AI upscaling for Counter-Strike 2 materials
 Launch with: python main.py
+       or:   pythonw main.py   (no console window)
 """
 
 import sys
 import os
 import time
 import warnings
+
+# Hide the console window on Windows when launched via pythonw or PyInstaller
+if sys.platform == "win32" and not os.environ.get("UPSCALER_DEBUG"):
+    try:
+        import ctypes
+        ctypes.windll.user32.ShowWindow(
+            ctypes.windll.kernel32.GetConsoleWindow(), 0)  # SW_HIDE
+    except Exception:
+        pass
 
 # Suppress triton CUDA-not-found warning (PyTorch bundles its own CUDA runtime;
 # triton only needs the full toolkit for the inductor backend which we guard).
