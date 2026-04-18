@@ -1042,15 +1042,16 @@ def photorealistic_convert(image: np.ndarray,
 
 def _deband(image: np.ndarray, strength: float) -> np.ndarray:
     """Reduce colour banding with edge-preserving smoothing."""
-    sigma_color = 15.0 * strength
-    sigma_space = 5.0 * strength
+    sigma_color = 10.0 * strength
+    sigma_space = 3.0 * strength
     if sigma_color < 2.0:
         return image
     filtered = cv2.bilateralFilter(
         np.clip(image, 0, 255).astype(np.uint8),
         d=5, sigmaColor=sigma_color, sigmaSpace=sigma_space)
-    # Blend: keep edges from original, smoothness from filtered
-    blend = min(strength * 0.4, 0.6)
+    # Blend: keep edges from original, smoothness from filtered.
+    # Reduced from 0.4/0.6 — bilateral was the main source of smearing.
+    blend = min(strength * 0.25, 0.35)
     return image * (1.0 - blend) + filtered.astype(np.float32) * blend
 
 
@@ -1088,8 +1089,9 @@ def _apply_photo_tonecurve(image: np.ndarray, strength: float) -> np.ndarray:
     for c in range(3):
         result[:, :, c] = cv2.LUT(img_u8[:, :, c], lut)
 
-    # Blend with original
-    blend = min(strength * 0.6, 0.8)
+    # Blend with original — reduced from 0.6/0.8 to prevent tonal
+    # compression that flattens subtle gradients into uniform zones.
+    blend = min(strength * 0.35, 0.45)
     return image * (1.0 - blend) + result.astype(np.float32) * blend
 
 
@@ -1318,7 +1320,9 @@ def enhance_texture(image: np.ndarray,
         rgb = _wavelet_sharpen(rgb, profile, effective_strength)
 
     # ── Step 9: Material-specific sharpening ─────────────────────
-    if _stages["sharpen"]:
+    #    Skip unsharp mask when wavelet sharpen already ran — the two
+    #    stack multiplicatively and cause severe halo / smearing artefacts.
+    if _stages["sharpen"] and not _stages.get("wavelet", False):
         if progress_callback:
             progress_callback(0.55, "Applying material sharpening...")
         rgb = _apply_sharpening(rgb, profile, effective_strength)
@@ -1532,8 +1536,9 @@ def _apply_clahe(image: np.ndarray, profile: MaterialProfile,
     var_mask = cv2.GaussianBlur(var_mask, (0, 0), sigmaX=ksize * 0.5)
 
     # Blend with original to control intensity, modulated by variance mask.
-    # Cap at 0.35 to prevent contrast blowout — CLAHE is very aggressive.
-    blend = min(strength * 0.35, 0.35)
+    # Cap at 0.18 — CLAHE is extremely aggressive and causes the biggest
+    # single-stage pixel deviation; higher values flatten subtle textures.
+    blend = min(strength * 0.18, 0.18)
     blend_map = (blend * var_mask).astype(np.float32)
     lab[:, :, 0] = np.clip(
         enhanced_l.astype(np.float32) * blend_map +
