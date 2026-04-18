@@ -147,6 +147,9 @@ class MainWindow(QMainWindow):
         logger.info(f"Core initialised in {elapsed:.1f}s")
         self._status_label.setText("Ready")
 
+        # Auto-load Slot 1 (Default) settings on startup
+        self._settings_panel.load_slot(1)
+
     # ------------------------------------------------------------------
     # UI Construction
     # ------------------------------------------------------------------
@@ -245,6 +248,7 @@ class MainWindow(QMainWindow):
         hsplitter.setStretchFactor(0, 0)
         hsplitter.setStretchFactor(1, 1)
         hsplitter.setSizes([420, 860])
+        hsplitter.setChildrenCollapsible(False)
 
         # ── Batch panel (bottom) ─────────────────────────────────
         self._batch_panel = BatchPanel()
@@ -255,6 +259,7 @@ class MainWindow(QMainWindow):
         vsplitter.setStretchFactor(0, 3)
         vsplitter.setStretchFactor(1, 0)
         vsplitter.setSizes([600, 350])
+        vsplitter.setChildrenCollapsible(False)
 
         main_layout.addWidget(vsplitter)
         self.setCentralWidget(central)
@@ -950,8 +955,11 @@ class MainWindow(QMainWindow):
             image = np.ascontiguousarray(result.image)
             self._preview.set_upscaled(image)
 
-            # Cache preview images for later recall
+            # Cache preview images for later recall (limit to last 30 entries)
             self._preview_cache[job_id] = (orig_image, image)
+            if len(self._preview_cache) > 30:
+                oldest = next(iter(self._preview_cache))
+                del self._preview_cache[oldest]
         except Exception:
             logger.exception(f"Error handling job #{job_id} completion")
 

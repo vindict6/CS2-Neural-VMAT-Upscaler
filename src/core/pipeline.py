@@ -66,6 +66,7 @@ class UpscaleWorker(QRunnable):
 
     def __init__(self, job: JobItem, upscaler: TextureUpscaler):
         super().__init__()
+        self.setAutoDelete(False)  # prevent C++ deletion while Python refs exist
         self.job = job
         self.upscaler = upscaler
         self.signals = WorkerSignals()
@@ -132,6 +133,14 @@ class UpscaleWorker(QRunnable):
 
             self.signals.job_progress.emit(job.id, 1.0, "Complete")
             self.signals.job_completed.emit(job.id, result)
+
+            # Release CUDA cache between jobs to prevent VRAM buildup
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         except Exception as e:
             job.status = JobStatus.FAILED
@@ -370,12 +379,13 @@ class ProcessingPipeline(QObject):
             worker = UpscaleWorker(job, self.upscaler)
             self._workers[job.id] = worker
 
-            # Wire signals — use direct method references, not lambdas
-            worker.signals.job_started.connect(self.job_started.emit)
-            worker.signals.job_progress.connect(self._on_job_progress)
-            worker.signals.job_progress.connect(self.job_progress.emit)
-            worker.signals.job_completed.connect(self._on_worker_completed)
-            worker.signals.job_failed.connect(self._on_worker_failed)
+            # Wire signals with QueuedConnection for thread safety
+            _Q = Qt.ConnectionType.QueuedConnection
+            worker.signals.job_started.connect(self.job_started.emit, _Q)
+            worker.signals.job_progress.connect(self._on_job_progress, _Q)
+            worker.signals.job_progress.connect(self.job_progress.emit, _Q)
+            worker.signals.job_completed.connect(self._on_worker_completed, _Q)
+            worker.signals.job_failed.connect(self._on_worker_failed, _Q)
 
             self._thread_pool.start(worker)
 

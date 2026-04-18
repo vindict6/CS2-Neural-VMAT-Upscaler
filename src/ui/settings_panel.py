@@ -27,6 +27,55 @@ logger = logging.getLogger("CS2Upscaler.SettingsPanel")
 _NUM_PRESET_SLOTS = 32
 _PRESETS_FILE = Path.home() / ".textureforge" / "presets.json"
 
+# Default preset shipped with the application (Slot 1)
+_DEFAULT_PRESET = {
+    "1": {
+        "name": "Default",
+        "settings": {
+            "scale_factor": 2,
+            "model_variant": "RealESRGAN_x4plus",
+            "texture_type": "diffuse",
+            "tile_size": 0,
+            "tile_overlap": 32,
+            "half_precision": True,
+            "preserve_alpha": True,
+            "seamless_mode": False,
+            "denoise_strength": 0.5,
+            "sharpen_amount": 0.0,
+            "color_correction": True,
+            "gpu_id": 0,
+            "output_format": "tga",
+            "output_quality": 90,
+            "generate_mipmaps": False,
+            "max_mipmap_levels": 8,
+            "max_output_size": 4096,
+            "compression_quality": 90,
+            "compression_enabled": True,
+            "generative_enhance": True,
+            "enhance_strength": 1.0,
+            "photorealistic_mode": True,
+            "anti_halo": True,
+            "text_preserve": False,
+            "material_override": "auto",
+            "enhance_clahe": True,
+            "enhance_frequency_split": True,
+            "enhance_detail_synth": True,
+            "enhance_micro_overlay": True,
+            "enhance_wavelet": True,
+            "enhance_sharpen": True,
+            "enhance_structure": True,
+            "enhance_colour": True,
+            "pbr_generate": True,
+            "pbr_roughness": True,
+            "pbr_metalness": True,
+            "pbr_normals": True,
+            "pbr_strength": 1.0,
+            "pbr_update_vmat": True,
+            "pbr_auto_values": True,
+        },
+    }
+}
+
 
 # Model download URLs (same as upscaler.py but accessible without loading torch)
 _MODEL_URLS = {
@@ -228,11 +277,17 @@ class SettingsPanel(QScrollArea):
         slot_num = str(index + 1)
         slot = self._preset_slots.get(slot_num)
         occupied = slot is not None
+        is_default = (slot_num == "1")
         self._slot_load_btn.setEnabled(occupied)
-        self._slot_clear_btn.setEnabled(occupied)
+        self._slot_save_btn.setEnabled(not is_default)
+        self._slot_clear_btn.setEnabled(occupied and not is_default)
+        self._slot_name_edit.setReadOnly(is_default)
         if occupied:
             self._slot_name_edit.setText(slot.get("name", ""))
-            self._slot_info.setText(self._describe_slot(slot))
+            desc = self._describe_slot(slot)
+            if is_default:
+                desc += "  (read-only)"
+            self._slot_info.setText(desc)
         else:
             self._slot_name_edit.setText("")
             self._slot_info.setText("Empty slot — save current settings here.")
@@ -253,6 +308,8 @@ class SettingsPanel(QScrollArea):
     def _on_slot_save(self):
         """Save current settings to the selected slot."""
         slot_num = str(self._slot_combo.currentIndex() + 1)
+        if slot_num == "1":
+            return  # Slot 1 is the built-in default and cannot be overwritten
         name = self._slot_name_edit.text().strip() or "Untitled"
         settings = self.get_settings()
         data = asdict(settings)
@@ -290,6 +347,8 @@ class SettingsPanel(QScrollArea):
     def _on_slot_clear(self):
         """Clear the selected slot."""
         slot_num = str(self._slot_combo.currentIndex() + 1)
+        if slot_num == "1":
+            return  # Slot 1 is the built-in default and cannot be cleared
         if slot_num in self._preset_slots:
             del self._preset_slots[slot_num]
             self._save_preset_slots()
@@ -297,8 +356,29 @@ class SettingsPanel(QScrollArea):
             self._slot_info.setText(f"Slot {slot_num} cleared.")
             logger.info(f"Preset cleared: slot {slot_num}")
 
+    def load_slot(self, slot_num: int):
+        """Programmatically load a specific slot's settings into the panel."""
+        slot = self._preset_slots.get(str(slot_num))
+        if not slot:
+            return False
+        try:
+            data = dict(slot["settings"])
+            data["model_variant"] = ModelVariant(data.get("model_variant",
+                                                          ModelVariant.REALESRGAN_X4PLUS.value))
+            data["texture_type"] = TextureType(data.get("texture_type",
+                                                        TextureType.AUTO.value))
+            settings = UpscaleSettings(**{k: v for k, v in data.items()
+                                          if k in UpscaleSettings.__dataclass_fields__})
+            self.apply_settings(settings)
+            self._slot_combo.setCurrentIndex(slot_num - 1)
+            logger.info(f"Auto-loaded preset slot {slot_num}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to auto-load slot {slot_num}: {e}")
+            return False
+
     def _load_preset_slots(self):
-        """Load preset slots from disk."""
+        """Load preset slots from disk, seeding defaults for new users."""
         self._preset_slots = {}
         if _PRESETS_FILE.exists():
             try:
@@ -307,6 +387,12 @@ class SettingsPanel(QScrollArea):
                 logger.info(f"Loaded {len(self._preset_slots)} preset slots")
             except Exception as e:
                 logger.warning(f"Failed to load presets: {e}")
+        if not self._preset_slots:
+            # First launch — seed with built-in defaults
+            import copy
+            self._preset_slots = copy.deepcopy(_DEFAULT_PRESET)
+            self._save_preset_slots()
+            logger.info("Seeded default preset (Slot 1: Default)")
 
     def _save_preset_slots(self):
         """Persist preset slots to disk."""
