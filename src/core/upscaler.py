@@ -228,12 +228,20 @@ class TextureUpscaler:
                     "generation": "cpu", "compute_capability": "N/A"}
         props = torch.cuda.get_device_properties(0)
         vram_total = props.total_memory / (1024 ** 3)
-        vram_used = torch.cuda.memory_allocated(0) / (1024 ** 3)
+        # Use driver-level reporting (like nvidia-smi) instead of PyTorch's
+        # internal allocator, which drastically under-reports actual usage.
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+            vram_used = (total_bytes - free_bytes) / (1024 ** 3)
+            vram_free = free_bytes / (1024 ** 3)
+        except Exception:
+            vram_used = torch.cuda.memory_allocated(0) / (1024 ** 3)
+            vram_free = vram_total - vram_used
         return {
             "name": torch.cuda.get_device_name(0),
             "vram_total": round(vram_total, 2),
             "vram_used": round(vram_used, 2),
-            "vram_free": round(vram_total - vram_used, 2),
+            "vram_free": round(vram_free, 2),
             "generation": self._gpu_gen,
             "compute_capability": f"{self._gpu_cc[0]}.{self._gpu_cc[1]}",
         }
@@ -447,8 +455,36 @@ class TextureUpscaler:
             logger.info(f"Auto tile size: {auto_tile}")
 
         bgr_in = rgb[:, :, ::-1]  # RGB \u2192 BGR for Real-ESRGAN
-        with torch.inference_mode():
-            output_bgr, _ = self._upsampler.enhance(bgr_in, outscale=settings.scale_factor)
+
+        # Run inference with CUDA OOM retry — if the tile is too large for
+        # actual free VRAM, halve it and retry instead of crashing.
+        tile_retries = 3
+        while tile_retries > 0:
+            try:
+                with torch.inference_mode():
+                    output_bgr, _ = self._upsampler.enhance(
+                        bgr_in, outscale=settings.scale_factor)
+                break  # success
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+                if "out of memory" in str(e).lower() or isinstance(
+                        e, torch.cuda.OutOfMemoryError):
+                    tile_retries -= 1
+                    old_tile = self._upsampler.tile
+                    new_tile = max(128, old_tile // 2)
+                    logger.warning(
+                        f"CUDA OOM with tile {old_tile} — retrying with "
+                        f"tile {new_tile} ({tile_retries} retries left)")
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    self._upsampler.tile = new_tile
+                    if tile_retries == 0:
+                        raise RuntimeError(
+                            f"Out of GPU memory even at tile size {new_tile}. "
+                            f"Try closing other GPU apps or using a smaller model."
+                        ) from e
+                else:
+                    raise
+
         output = output_bgr[:, :, ::-1].copy()  # BGR → RGB back
 
         if progress_callback:
@@ -760,8 +796,14 @@ class TextureUpscaler:
         if not self.gpu_available:
             return 256
         try:
-            vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-            vram_free = vram_total - torch.cuda.memory_allocated(0) / (1024 ** 3)
+            # Use driver-level free VRAM (not PyTorch allocator) for accuracy
+            try:
+                free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+                vram_free = free_bytes / (1024 ** 3)
+            except Exception:
+                vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+                vram_free = vram_total - torch.cuda.memory_allocated(0) / (1024 ** 3)
+
             scale = settings.scale_factor
             half_mult = 0.5 if settings.half_precision else 1.0
 

@@ -38,6 +38,20 @@ def run():
     from .ui.theme import get_stylesheet
     app.setStyleSheet(get_stylesheet())
 
+    # Install global exception hook so unhandled errors show a dialog
+    # instead of silently crashing the process.
+    def _exception_hook(exc_type, exc_value, exc_tb):
+        import traceback
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        logger.critical(f"Unhandled exception:\n{msg}")
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.critical(
+            None, "Fatal Error",
+            f"An unexpected error occurred:\n\n{exc_value}\n\n"
+            f"See the Debug Console for the full traceback."
+        )
+    sys.excepthook = _exception_hook
+
     # Import MainWindow here so heavy deps (torch, basicsr) load *after*
     # QApplication exists and startup messages are already visible.
     from .ui.main_window import MainWindow
