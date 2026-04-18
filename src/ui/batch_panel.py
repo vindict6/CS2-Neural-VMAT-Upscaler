@@ -27,6 +27,7 @@ class BatchPanel(QFrame):
     request_start = pyqtSignal()
     request_cancel = pyqtSignal()
     request_clear = pyqtSignal()
+    job_selected = pyqtSignal(int)  # job_id
     output_dir_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -75,6 +76,7 @@ class BatchPanel(QFrame):
         self._table.setAlternatingRowColors(True)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setMinimumHeight(120)
+        self._table.cellClicked.connect(self._on_row_clicked)
         layout.addWidget(self._table, 1)
 
         # Overall progress
@@ -134,6 +136,16 @@ class BatchPanel(QFrame):
 
     def _on_clear(self):
         self.request_clear.emit()
+
+    def _on_row_clicked(self, row: int, column: int):
+        """Emit job_selected when user clicks a row."""
+        item = self._table.item(row, 0)
+        if item:
+            try:
+                job_id = int(item.text())
+                self.job_selected.emit(job_id)
+            except ValueError:
+                pass
 
     def _clear_table(self):
         self._table.setRowCount(0)

@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self._loaded_files: list = []
         self._materials_root: str = ""  # root folder for recursive scanning
         self._vmats: list = []  # parsed VmatMaterial list
+        self._preview_cache: dict = {}  # {job_id: (original_array, upscaled_array)}
         self._models_dir = str(Path(__file__).resolve().parent.parent.parent / "models")
 
         # Build lightweight UI shell immediately (no heavy imports)
@@ -426,6 +427,7 @@ class MainWindow(QMainWindow):
         self._batch_panel.request_start.connect(self._on_start_batch)
         self._batch_panel.request_cancel.connect(self._on_cancel)
         self._batch_panel.request_clear.connect(self._on_clear_queue)
+        self._batch_panel.job_selected.connect(self._on_job_selected)
 
         # Pipeline signals
         self._pipeline.job_started.connect(
@@ -891,6 +893,7 @@ class MainWindow(QMainWindow):
         self._batch_panel._clear_table()
         self._batch_panel.set_running(False)
         self._batch_panel.update_stats(0, 0, 0, 0.0)
+        self._preview_cache.clear()
         self._status_label.setText("Queue cleared")
 
     def _on_job_completed(self, job_id: int, result):
@@ -906,6 +909,7 @@ class MainWindow(QMainWindow):
             self._current_result = result
             self._stack_layout.setCurrentIndex(1)  # show preview
 
+            orig_image = None
             # Load original so preview can show before/after comparison
             if job and job.input_path:
                 try:
@@ -919,8 +923,23 @@ class MainWindow(QMainWindow):
 
             image = np.ascontiguousarray(result.image)
             self._preview.set_upscaled(image)
+
+            # Cache preview images for later recall
+            self._preview_cache[job_id] = (orig_image, image)
         except Exception:
             logger.exception(f"Error handling job #{job_id} completion")
+
+    def _on_job_selected(self, job_id: int):
+        """Restore cached preview when user clicks a job in the queue."""
+        cached = self._preview_cache.get(job_id)
+        if not cached:
+            return
+        orig, upscaled = cached
+        self._stack_layout.setCurrentIndex(1)
+        if orig is not None:
+            self._preview.set_original(orig)
+        if upscaled is not None:
+            self._preview.set_upscaled(upscaled)
 
     def _on_job_failed(self, job_id: int, error: str):
         try:

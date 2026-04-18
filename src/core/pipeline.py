@@ -149,33 +149,34 @@ class UpscaleWorker(QRunnable):
 
     def _save_pbr_maps(self, result: UpscaleResult, output_path: str,
                        input_path: str, settings: UpscaleSettings):
-        """Save generated PBR maps in-place (overwrite the output file)."""
+        """Save generated PBR maps as separate files alongside the upscaled output."""
         try:
+            p = Path(output_path)
             pbr_fmt = detect_format(output_path) or TextureFormat.PNG
             quality = settings.output_quality
             if settings.compression_enabled:
                 quality = settings.compression_quality
 
-            # Write each enabled PBR map directly to output_path.
-            # No additional files are created.
             if result.pbr_roughness_map is not None:
-                save_texture(result.pbr_roughness_map, output_path,
+                rough_path = str(p.parent / f"{p.stem}_rough{p.suffix}")
+                save_texture(result.pbr_roughness_map, rough_path,
                              fmt=pbr_fmt, quality=quality)
-                logger.info(f"Saved roughness map in-place: {output_path}")
+                logger.info(f"Saved roughness map: {rough_path}")
 
             if result.pbr_metalness_map is not None:
-                save_texture(result.pbr_metalness_map, output_path,
+                metal_path = str(p.parent / f"{p.stem}_metal{p.suffix}")
+                save_texture(result.pbr_metalness_map, metal_path,
                              fmt=pbr_fmt, quality=quality)
-                logger.info(f"Saved metalness map in-place: {output_path}")
+                logger.info(f"Saved metalness map: {metal_path}")
 
             if result.pbr_normal_map is not None:
-                save_texture(result.pbr_normal_map, output_path,
+                normal_path = str(p.parent / f"{p.stem}_normal{p.suffix}")
+                save_texture(result.pbr_normal_map, normal_path,
                              fmt=pbr_fmt, quality=quality)
-                logger.info(f"Saved normal map in-place: {output_path}")
+                logger.info(f"Saved normal map: {normal_path}")
 
             # Update VMAT if requested
             if settings.pbr_update_vmat:
-                p = Path(output_path)
                 self._update_vmat(input_path, result, p.stem, p)
 
         except Exception as e:
