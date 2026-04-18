@@ -844,20 +844,29 @@ class MainWindow(QMainWindow):
                 # Build VMAT surface-property -> material type mapping
                 vmat_material_map = self._build_vmat_material_map()
 
+                # Show classification review dialog
+                from .classification_dialog import ClassificationReviewDialog
+                dlg = ClassificationReviewDialog(
+                    self._loaded_files, vmat_material_map, parent=self)
+                if dlg.exec() != dlg.DialogCode.Accepted:
+                    return  # user cancelled
+                user_overrides = dlg.get_overrides()
+
                 ids = self._pipeline.add_batch(
                     self._loaded_files, out_dir, settings,
                     input_root=self._materials_root)
 
-                # Apply per-file text_preserve flag and VMAT material override
+                # Apply per-file text_preserve flag and material overrides
                 for jid in ids:
                     job = self._pipeline.get_job(jid)
                     if job:
                         overrides = {}
                         if job.input_path in text_map:
                             overrides['text_preserve'] = text_map[job.input_path]
-                        # If material_override is "auto" and VMAT has a surface
-                        # property, use that surface property as material type
-                        if (job.settings.material_override == "auto" and
+                        # User / VMAT material override from the review dialog
+                        if job.input_path in user_overrides:
+                            overrides['material_override'] = user_overrides[job.input_path]
+                        elif (job.settings.material_override == "auto" and
                                 job.input_path in vmat_material_map):
                             overrides['material_override'] = vmat_material_map[job.input_path]
                         if overrides:

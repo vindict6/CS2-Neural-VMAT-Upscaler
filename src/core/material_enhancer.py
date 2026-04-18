@@ -520,9 +520,10 @@ def classify_material(image: np.ndarray) -> Tuple[MaterialType, float]:
     scores[MaterialType.CONCRETE] = (
         _stone_base +
         (0.20 if grey_tone else 0.0) +
-        (0.15 if 100 < global_mean < 180 else 0.0) +
-        (0.10 if is_desaturated else 0.0) +
-        (0.10 if hf_ratio > 20 else 0.0)
+        (0.15 if 70 < global_mean < 180 else 0.0) +
+        (0.10 if is_desaturated or mean_sat < 40 else 0.0) +
+        (0.10 if hf_ratio > 10 else 0.05) +
+        (0.05 if is_warm and grey_tone else 0.0)  # warm grey = concrete/plaster
     )
     scores[MaterialType.BRICK] = (
         (0.20 if is_warm or is_brown else 0.0) +
@@ -618,12 +619,13 @@ def classify_material(image: np.ndarray) -> Tuple[MaterialType, float]:
         (0.05 if local_var_mean > 200 else 0.0)
     )
     scores[MaterialType.SKIN] = (
-        (0.25 if 5 < mean_hue < 25 and 30 < mean_sat < 90 else 0.0) +
-        (0.20 if hf_ratio < 20 else 0.0) +
-        (0.20 if global_std < 30 else 0.0) +
-        (0.15 if 120 < global_mean < 210 else 0.0) +
+        (0.25 if 5 < mean_hue < 25 and 40 < mean_sat < 90 else 0.0) +
+        (0.20 if hf_ratio < 12 else 0.0) +
+        (0.20 if global_std < 22 else 0.0) +
+        (0.15 if 140 < global_mean < 210 else 0.0) +
         (0.10 if channel_corr > 0.85 else 0.0) +
-        (0.10 if directionality < 0.1 else 0.0)
+        (0.10 if directionality < 0.1 else 0.0) +
+        (-0.15 if grey_tone else 0.0)  # grey surfaces are not skin
     )
 
     # ── Synthetic ────────────────────────────────────────────────
@@ -655,13 +657,14 @@ def classify_material(image: np.ndarray) -> Tuple[MaterialType, float]:
 
     # ── Environmental ────────────────────────────────────────────
     scores[MaterialType.TERRAIN_DIRT] = (
-        (0.20 if is_brown or is_warm else 0.0) +
+        (0.20 if is_brown and not grey_tone else 0.0) +
+        (0.10 if is_warm and not grey_tone else 0.0) +
         min(hf_ratio / 50.0, 1.0) * 0.15 +
         (0.15 if global_std > 25 else 0.0) +
-        (0.15 if 20 < mean_sat < 70 else 0.0) +
+        (0.15 if 30 < mean_sat < 70 else 0.0) +
         (0.15 if directionality < 0.12 else 0.0) +
         (0.10 if 70 < global_mean < 150 else 0.0) +
-        (0.10 if local_var_mean > 100 else 0.0)
+        (-0.10 if grey_tone else 0.0)  # grey surfaces are not dirt
     )
     scores[MaterialType.TERRAIN_SAND] = (
         (0.25 if 15 < mean_hue < 35 and mean_sat > 25 else 0.0) +
@@ -1253,6 +1256,12 @@ def enhance_texture(image: np.ndarray,
 
     profile = _PROFILES.get(mat_type, _PROFILES[MaterialType.GENERIC])
 
+    # Scale strength by classification confidence — low confidence means
+    # less aggressive material-specific enhancement to avoid artifacts
+    # from misclassification.  Manual overrides (confidence=1.0) are unaffected.
+    conf_scale = 0.5 + 0.5 * min(confidence / 0.7, 1.0)  # 0.5 at conf=0, 1.0 at conf>=0.7
+    effective_strength = strength * conf_scale
+
     if progress_callback:
         progress_callback(0.05, f"Detected: {mat_type.value} — enhancing...")
 
@@ -1282,56 +1291,56 @@ def enhance_texture(image: np.ndarray,
     if _stages["clahe"]:
         if progress_callback:
             progress_callback(0.15, "Enhancing local contrast...")
-        rgb = _apply_clahe(rgb, profile, strength)
+        rgb = _apply_clahe(rgb, profile, effective_strength)
 
     # ── Step 5: Frequency-split detail injection ─────────────────
     if _stages["frequency_split"]:
         if progress_callback:
             progress_callback(0.25, "Injecting frequency-split detail...")
-        rgb = _frequency_split_enhance(rgb, profile, strength)
+        rgb = _frequency_split_enhance(rgb, profile, effective_strength)
 
     # ── Step 6: High-frequency detail synthesis ──────────────────
     if _stages["detail_synth"]:
         if progress_callback:
             progress_callback(0.35, "Synthesising surface detail...")
-        rgb = _synthesise_detail(rgb, profile, strength)
+        rgb = _synthesise_detail(rgb, profile, effective_strength)
 
     # ── Step 7: Micro-detail overlay ─────────────────────────────
     if _stages["micro_overlay"]:
         if progress_callback:
             progress_callback(0.42, "Adding micro-detail...")
-        rgb = _apply_micro_detail(rgb, profile, strength)
+        rgb = _apply_micro_detail(rgb, profile, effective_strength)
 
     # ── Step 8: Multi-scale wavelet sharpening ───────────────────
     if _stages["wavelet"]:
         if progress_callback:
             progress_callback(0.50, "Wavelet sharpening...")
-        rgb = _wavelet_sharpen(rgb, profile, strength)
+        rgb = _wavelet_sharpen(rgb, profile, effective_strength)
 
     # ── Step 9: Material-specific sharpening ─────────────────────
     if _stages["sharpen"]:
         if progress_callback:
             progress_callback(0.55, "Applying material sharpening...")
-        rgb = _apply_sharpening(rgb, profile, strength)
+        rgb = _apply_sharpening(rgb, profile, effective_strength)
 
     # ── Step 10: Edge-aware structure enhancement ────────────────
     if _stages["structure"]:
         if progress_callback:
             progress_callback(0.62, "Enhancing surface structure...")
-        rgb = _structure_enhance(rgb, profile, strength)
+        rgb = _structure_enhance(rgb, profile, effective_strength)
 
     # ── Step 11: Color enhancement ───────────────────────────────
     if _stages["colour"]:
         if progress_callback:
             progress_callback(0.68, "Enhancing colour response...")
-        rgb = _enhance_colour(rgb, profile, strength)
+        rgb = _enhance_colour(rgb, profile, effective_strength)
 
     # ── Step 12: Photorealistic conversion ───────────────────────
     if photorealistic:
         if progress_callback:
             progress_callback(0.78, "Applying photorealistic conversion...")
         rgb = np.clip(rgb, 0, 255).astype(np.uint8)
-        rgb = photorealistic_convert(rgb, mat_type, strength)
+        rgb = photorealistic_convert(rgb, mat_type, effective_strength)
 
     # ── Step 13: Text region blending (protect text) ────────────
     if has_text:
