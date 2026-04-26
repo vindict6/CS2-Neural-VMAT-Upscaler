@@ -205,6 +205,30 @@ class MainWindow(QMainWindow):
         self._file_count_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         browser_layout.addWidget(self._file_count_label)
 
+        # Select All / Select None buttons (control inclusion checkboxes)
+        sel_row = QHBoxLayout()
+        sel_row.setContentsMargins(0, 0, 0, 0)
+        sel_row.setSpacing(4)
+        btn_select_all = QPushButton("Select All")
+        btn_select_none = QPushButton("Select None")
+        for b in (btn_select_all, btn_select_none):
+            b.setMinimumHeight(24)
+            b.setStyleSheet(
+                f"QPushButton {{ background: {BG_MID}; color: {TEXT_PRIMARY}; "
+                f"border: 1px solid {BORDER}; border-radius: 3px; padding: 2px 8px; "
+                f"font-size: 11px; }} "
+                f"QPushButton:hover {{ background: {BG_LIGHT}; }}")
+        btn_select_all.clicked.connect(lambda: self._set_all_tree_checked(True))
+        btn_select_none.clicked.connect(lambda: self._set_all_tree_checked(False))
+        sel_row.addWidget(btn_select_all)
+        sel_row.addWidget(btn_select_none)
+        sel_row.addStretch()
+        self._included_count_label = QLabel("")
+        self._included_count_label.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 11px;")
+        sel_row.addWidget(self._included_count_label)
+        browser_layout.addLayout(sel_row)
+
         # Material tree
         self._mat_tree = QTreeWidget()
         self._mat_tree.setHeaderLabels(["Name", "Type", "Dimensions", "Status", "Text"])
@@ -221,6 +245,9 @@ class MainWindow(QMainWindow):
         self._mat_tree.setAlternatingRowColors(True)
         self._mat_tree.setRootIsDecorated(True)
         self._mat_tree.itemClicked.connect(self._on_tree_item_clicked)
+        # Inclusion-checkbox propagation (parent <-> child).
+        self._tree_check_propagating = False
+        self._mat_tree.itemChanged.connect(self._on_tree_item_changed)
         # Restore persisted column widths
         self._restore_tree_columns()
         header.sectionResized.connect(self._on_tree_column_resized)
@@ -532,6 +559,11 @@ class MainWindow(QMainWindow):
         """
         from .theme import SUCCESS, WARNING, TEXT_SECONDARY, ACCENT
 
+        # Block itemChanged signals during population — otherwise every
+        # setCheckState call fires propagation while siblings are still being
+        # added, producing bogus tri-state values.
+        self._tree_check_propagating = True
+        self._mat_tree.blockSignals(True)
         self._mat_tree.clear()
         root_path = Path(root)
 
@@ -605,6 +637,9 @@ class MainWindow(QMainWindow):
                     "",
                 ])
                 vmat_item.setData(0, Qt.ItemDataRole.UserRole, ("vmat", vmat))
+                vmat_item.setFlags(vmat_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                                   | Qt.ItemFlag.ItemIsAutoTristate)
+                vmat_item.setCheckState(0, Qt.CheckState.Checked)
                 vmat_item.setExpanded(False)
 
                 # Child texture entries from VMAT
@@ -630,6 +665,8 @@ class MainWindow(QMainWindow):
                     if tex.resolved_path:
                         tex_item.setData(
                             0, Qt.ItemDataRole.UserRole, ("texture", tex.resolved_path))
+                    tex_item.setFlags(tex_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    tex_item.setCheckState(0, Qt.CheckState.Checked)
 
             # Build a set of texture paths already shown under VMATs
             vmat_tex_paths = set()
@@ -658,8 +695,104 @@ class MainWindow(QMainWindow):
                 leaf = QTreeWidgetItem(parent_node, [
                     fname, ext, dims, "Pending", ""])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, ("texture", fpath))
+                leaf.setFlags(leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                leaf.setCheckState(0, Qt.CheckState.Checked)
                 # Has Text checkbox
                 leaf.setCheckState(4, Qt.CheckState.Unchecked)
+
+        # Re-enable itemChanged signals now that population is complete.
+        self._mat_tree.blockSignals(False)
+        self._tree_check_propagating = False
+        self._update_included_count()
+
+    def _on_tree_item_changed(self, item: QTreeWidgetItem, column: int):
+        """Propagate inclusion-checkbox state between parent and children."""
+        if column != 0 or self._tree_check_propagating:
+            return
+        self._tree_check_propagating = True
+        self._mat_tree.blockSignals(True)
+        try:
+            state = item.checkState(0)
+            # Propagate down on full Checked / Unchecked changes.
+            if state in (Qt.CheckState.Checked, Qt.CheckState.Unchecked):
+                self._set_subtree_check(item, state)
+            # Propagate up: parent reflects aggregate of its children.
+            parent = item.parent()
+            while parent is not None:
+                states = {parent.child(i).checkState(0)
+                          for i in range(parent.childCount())}
+                if states == {Qt.CheckState.Checked}:
+                    new_state = Qt.CheckState.Checked
+                elif states == {Qt.CheckState.Unchecked}:
+                    new_state = Qt.CheckState.Unchecked
+                else:
+                    new_state = Qt.CheckState.PartiallyChecked
+                if parent.checkState(0) != new_state:
+                    parent.setCheckState(0, new_state)
+                parent = parent.parent()
+        finally:
+            self._mat_tree.blockSignals(False)
+            self._tree_check_propagating = False
+        self._update_included_count()
+
+    def _set_subtree_check(self, item: QTreeWidgetItem,
+                           state: "Qt.CheckState"):
+        """Recursively set check state on all descendants of `item`."""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                child.setCheckState(0, state)
+            self._set_subtree_check(child, state)
+
+    def _set_all_tree_checked(self, checked: bool):
+        """Select All / Select None button handler."""
+        if self._mat_tree.topLevelItemCount() == 0:
+            return
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self._tree_check_propagating = True
+        self._mat_tree.blockSignals(True)
+        try:
+            for i in range(self._mat_tree.topLevelItemCount()):
+                top = self._mat_tree.topLevelItem(i)
+                if top.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    top.setCheckState(0, state)
+                self._set_subtree_check(top, state)
+        finally:
+            self._mat_tree.blockSignals(False)
+            self._tree_check_propagating = False
+        self._update_included_count()
+
+    def _collect_included_textures(self) -> set:
+        """Return the set of resolved texture paths whose tree leaf is Checked."""
+        included = set()
+        root = self._mat_tree.invisibleRootItem()
+
+        def walk(item):
+            for i in range(item.childCount()):
+                c = item.child(i)
+                data = c.data(0, Qt.ItemDataRole.UserRole)
+                if (data and data[0] == "texture"
+                        and isinstance(data[1], str)
+                        and c.checkState(0) == Qt.CheckState.Checked):
+                    included.add(str(Path(data[1]).resolve()))
+                walk(c)
+
+        walk(root)
+        return included
+
+    def _update_included_count(self):
+        """Refresh the 'N of M selected' label below Select All/None."""
+        if not hasattr(self, "_included_count_label"):
+            return
+        total = len(self._loaded_files)
+        if total == 0:
+            self._included_count_label.setText("")
+            return
+        included = self._collect_included_textures()
+        # Resolve loaded_files for fair comparison (paths may differ in case/sep).
+        loaded_resolved = {str(Path(p).resolve()) for p in self._loaded_files}
+        n_included = len(included & loaded_resolved)
+        self._included_count_label.setText(f"{n_included} / {total} selected")
 
     def _on_tree_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle clicking an item in the material tree."""
@@ -826,10 +959,26 @@ class MainWindow(QMainWindow):
         if self._pipeline.get_queue_count() == 0:
             # If no explicit batch, add loaded files
             if self._loaded_files:
+                # Filter loaded_files by inclusion checkboxes from the tree.
+                included = self._collect_included_textures()
+                if included:
+                    files_to_queue = [
+                        p for p in self._loaded_files
+                        if str(Path(p).resolve()) in included
+                    ]
+                else:
+                    files_to_queue = []
+                if not files_to_queue:
+                    QMessageBox.information(
+                        self, "No Selection",
+                        "All textures are unchecked. Use 'Select All' "
+                        "or check at least one item to queue.")
+                    return
+
                 settings = self._settings_panel.get_settings()
                 out_dir = self._batch_panel.output_dir
                 if not out_dir:
-                    parent = str(Path(self._loaded_files[0]).parent)
+                    parent = str(Path(files_to_queue[0]).parent)
                     if self._materials_root:
                         parent = str(Path(self._materials_root).parent)
                         out_dir = str(
@@ -847,13 +996,13 @@ class MainWindow(QMainWindow):
                 # Show classification review dialog
                 from .classification_dialog import ClassificationReviewDialog
                 dlg = ClassificationReviewDialog(
-                    self._loaded_files, vmat_material_map, parent=self)
+                    files_to_queue, vmat_material_map, parent=self)
                 if dlg.exec() != dlg.DialogCode.Accepted:
                     return  # user cancelled
                 user_overrides = dlg.get_overrides()
 
                 ids = self._pipeline.add_batch(
-                    self._loaded_files, out_dir, settings,
+                    files_to_queue, out_dir, settings,
                     input_root=self._materials_root)
 
                 # Apply per-file text_preserve flag and material overrides

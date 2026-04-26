@@ -321,8 +321,10 @@ class TextureUpscaler:
                 try:
                     # The inductor backend (default) requires a working triton
                     # installation with CUDA toolkit access.  Test that first;
-                    # if it fails fall back to the eager backend which still
-                    # benefits from graph-break elimination.
+                    # if it fails, skip torch.compile entirely — cudnn.benchmark
+                    # already provides per-shape kernel autotuning, and the
+                    # eager backend would just add dispatcher overhead with no
+                    # real fusion benefit.
                     _triton_ok = False
                     try:
                         import triton  # noqa: F401
@@ -333,14 +335,20 @@ class TextureUpscaler:
                         pass
 
                     if _triton_ok:
+                        # Use mode="default" with dynamic=True so the same
+                        # compiled graph is reused across varying tile shapes.
+                        # mode="reduce-overhead" uses CUDA graphs which require
+                        # static shapes and triggers a slow recapture for every
+                        # new tile size — disastrous for batch processing of
+                        # mixed-resolution textures.
                         self._upsampler.model = torch.compile(
-                            self._upsampler.model, mode="reduce-overhead")
-                        logger.info(f"torch.compile enabled ({self._gpu_gen})")
+                            self._upsampler.model, dynamic=True)
+                        logger.info(
+                            f"torch.compile enabled (dynamic, {self._gpu_gen})")
                     else:
-                        # eager backend: no triton/inductor, still fuses some ops
-                        self._upsampler.model = torch.compile(
-                            self._upsampler.model, backend="eager")
-                        logger.info(f"torch.compile enabled (eager, no triton/CUDA toolkit) ({self._gpu_gen})")
+                        logger.info(
+                            "torch.compile skipped (no triton/CUDA toolkit) "
+                            "— relying on cudnn.benchmark autotune")
                 except Exception as e:
                     logger.debug(f"torch.compile skipped: {e}")
 
